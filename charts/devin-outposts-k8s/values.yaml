@@ -104,6 +104,9 @@ defaultPool:
     # -- StorageClass for state volumes (FilesystemSnapshot only). Empty =>
     # cluster default.
     storageClassName: ""
+    # -- dataSource of new state volumes (FilesystemSnapshot only). Empty =>
+    # an empty volume.
+    volumeDataSource: {}
     # -- Name of an admin-provided PodSnapshotStorageConfig (GkeSnapshot only).
     gkeStorageConfigName: ""
 

@@ -241,6 +241,7 @@ pub fn build_state_pvc(
         spec: Some(PersistentVolumeClaimSpec {
             access_modes: Some(vec!["ReadWriteOnce".to_string()]),
             storage_class_name: resume.storage_class_name.clone(),
+            data_source: resume.volume_data_source.clone(),
             resources: Some(VolumeResourceRequirements {
                 requests: Some(BTreeMap::from([("storage".to_string(), Quantity(size))])),
                 ..Default::default()
@@ -415,7 +416,7 @@ pub fn build_worker_pod(params: WorkerPodParams<'_>) -> Result<Pod> {
 
 #[cfg(test)]
 mod tests {
-    use k8s_openapi::api::core::v1::PodTemplateSpec;
+    use k8s_openapi::api::core::v1::{PodTemplateSpec, TypedLocalObjectReference};
 
     use crate::api::{Kind, Metadata, OutpostDevin, Phase, SessionStatus, Spec, Status};
     use crate::crd::{OutpostPoolSpec, SecretKeyRef, WorkerOverrides, WorkerTemplate};
@@ -743,5 +744,24 @@ mod tests {
             "100Gi"
         );
         assert_eq!(spec.storage_class_name.as_deref(), Some("fast"));
+    }
+
+    #[test]
+    fn state_pvc_restores_from_configured_data_source() {
+        let pool = pool();
+        let pvc = build_state_pvc(&pool, "devin-1", &Default::default()).unwrap();
+        assert_eq!(pvc.spec.unwrap().data_source, None);
+
+        let source = TypedLocalObjectReference {
+            api_group: Some("snapshot.storage.k8s.io".to_string()),
+            kind: "VolumeSnapshot".to_string(),
+            name: "worker-home".to_string(),
+        };
+        let resume = ResumeConfig {
+            volume_data_source: Some(source.clone()),
+            ..Default::default()
+        };
+        let pvc = build_state_pvc(&pool, "devin-1", &resume).unwrap();
+        assert_eq!(pvc.spec.unwrap().data_source, Some(source));
     }
 }
