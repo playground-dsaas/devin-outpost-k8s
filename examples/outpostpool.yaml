@@ -30,6 +30,7 @@ spec:
     # FilesystemSnapshot only — the per-session state volume:
     # volumeSize: 20Gi
     # storageClassName: premium-rwo
+    # volumeDataSource: { apiGroup: snapshot.storage.k8s.io, kind: VolumeSnapshot, name: worker-home }
     #
     # GkeSnapshot only — an admin-provided PodSnapshotStorageConfig in this
     # namespace (also requires runtimeClassName: gvisor on the worker):

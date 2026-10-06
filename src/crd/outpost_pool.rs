@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use k8s_openapi::api::core::v1::PodTemplateSpec;
+use k8s_openapi::api::core::v1::{PodTemplateSpec, TypedLocalObjectReference};
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -179,6 +179,15 @@ pub struct ResumeConfig {
     /// default class.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_class_name: Option<String>,
+
+    /// Source a new per-session state volume is restored from
+    /// ([`ResumePolicy::FilesystemSnapshot`] only), e.g. a `VolumeSnapshot` in
+    /// the pool's namespace pre-filled with the worker image's `/home` so
+    /// sessions start with it instead of an empty volume. Becomes the PVC's
+    /// `spec.dataSource`; only volumes created after the change pick it up.
+    /// `None` => an empty volume.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_data_source: Option<TypedLocalObjectReference>,
 
     /// Name of the `PodSnapshotStorageConfig` (in the pool's namespace) that
     /// GKE pod snapshots are stored through. Required for the

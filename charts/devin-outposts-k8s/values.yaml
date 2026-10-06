@@ -104,6 +104,10 @@ defaultPool:
     # -- StorageClass for state volumes (FilesystemSnapshot only). Empty =>
     # cluster default.
     storageClassName: ""
+    # -- Snapshot or PVC new state volumes are cloned from instead of starting
+    # empty (FilesystemSnapshot only), e.g.
+    # {apiGroup: snapshot.storage.k8s.io, kind: VolumeSnapshot, name: worker-home}.
+    volumeDataSource: {}
     # -- Name of an admin-provided PodSnapshotStorageConfig (GkeSnapshot only).
     gkeStorageConfigName: ""
 

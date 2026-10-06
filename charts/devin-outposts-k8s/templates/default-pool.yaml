@@ -44,6 +44,10 @@ spec:
     {{- with $dp.resume.storageClassName }}
     storageClassName: {{ . | quote }}
     {{- end }}
+    {{- with $dp.resume.volumeDataSource }}
+    volumeDataSource:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     {{- with $dp.resume.gkeStorageConfigName }}
     gkeStorageConfigName: {{ . | quote }}
     {{- end }}
