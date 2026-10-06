@@ -98,7 +98,7 @@
                         "type": "string"
                       },
                       "volumeDataSource": {
-                        "description": "Source a new per-session state volume is restored from\n([`ResumePolicy::FilesystemSnapshot`] only), e.g. a `VolumeSnapshot` in\nthe pool's namespace pre-filled with the worker image's `/home` so\nsessions start with it instead of an empty volume. Becomes the PVC's\n`spec.dataSource`; only volumes created after the change pick it up.\n`None` => an empty volume.",
+                        "description": "`spec.dataSource` of new state volumes ([`ResumePolicy::FilesystemSnapshot`]\nonly). `None` => an empty volume.",
                         "nullable": true,
                         "properties": {
                           "apiGroup": {
