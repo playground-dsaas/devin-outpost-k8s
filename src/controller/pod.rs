@@ -368,11 +368,8 @@ pub fn build_state_pvc(
 
 /// Init container that fills an empty state volume with the home directory
 /// `image` ships. It runs as root so the copy keeps the image's ownership on
-/// a freshly provisioned, root-owned volume. `tar --ignore-failed-read`
-/// rather than `cp -a` because a DRS layer captured while Chrome ran can hold
-/// an overlay whiteout (`.browser_data_dir/BrowserMetrics`) that readdir lists
-/// but stat rejects; `cp -a` aborts the whole seed on it. Only the extracting
-/// tar's exit status fails the container.
+/// a freshly provisioned, root-owned volume. `tar --ignore-failed-read` instead
+/// of `cp -a`: DRS layers can carry a leaked whiteout that cannot be stat'd.
 fn seed_home_container(image: &str, home_dir: &str) -> Container {
     let script = format!(
         "[ -e \"$SEED/{SEED_HOME_MARKER}\" ] || {{ tar --ignore-failed-read -C \"$IMAGE_HOME\" -cf - . \
