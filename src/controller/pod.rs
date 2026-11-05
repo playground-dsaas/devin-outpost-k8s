@@ -372,10 +372,15 @@ pub fn build_state_pvc(
 
 /// Init container that fills an empty state volume with the home directory
 /// `image` ships. It runs as root so the copy keeps the image's ownership on
-/// a freshly provisioned, root-owned volume.
+/// a freshly provisioned, root-owned volume. `tar --ignore-failed-read`
+/// rather than `cp -a` because a DRS layer captured while Chrome ran can hold
+/// an overlay whiteout (`.browser_data_dir/BrowserMetrics`) that readdir lists
+/// but stat rejects; `cp -a` aborts the whole seed on it. Only the extracting
+/// tar's exit status fails the container.
 fn seed_home_container(image: &str, home_dir: &str) -> Container {
     let script = format!(
-        "[ -e \"$SEED/{SEED_HOME_MARKER}\" ] || {{ cp -a \"$IMAGE_HOME/.\" \"$SEED/\" \
+        "[ -e \"$SEED/{SEED_HOME_MARKER}\" ] || {{ tar --ignore-failed-read -C \"$IMAGE_HOME\" -cf - . \
+         | tar -C \"$SEED\" -xpf - \
          && mkdir -p \"$(dirname \"$SEED/{SEED_HOME_MARKER}\")\" \
          && touch \"$SEED/{SEED_HOME_MARKER}\"; }}"
     );
@@ -1494,6 +1499,10 @@ mod tests {
                 .find(|c| c.name == SEED_HOME_CONTAINER_NAME)
                 .unwrap();
             assert_eq!(seed.image.as_deref(), Some(expected));
+            assert!(
+                seed.command.as_ref().unwrap()[2].contains("tar --ignore-failed-read"),
+                "the seed must survive unreadable entries in the image's home"
+            );
             let seed_security = seed.security_context.as_ref().unwrap();
             assert_eq!(seed_security.run_as_user, Some(0));
             assert_eq!(
