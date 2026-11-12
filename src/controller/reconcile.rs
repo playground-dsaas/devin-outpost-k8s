@@ -320,7 +320,8 @@ async fn apply(pool: Arc<OutpostPool>, ctx: &Context) -> crate::Result<RequeueAc
     }
     let snapshot_pending = sync.snapshot_pending;
 
-    // Cleanup: token secrets whose session no longer exists in the queue.
+    // Cleanup: token secrets whose session left the queue; its state stays
+    // for a resume (`on_vanish`).
     let secrets: Api<Secret> = Api::namespaced(ctx.client.clone(), &ns);
     let selector = format!("{LABEL_POOL}={}", pool.name_any());
     let expected_secrets: Vec<String> = sessions
@@ -335,7 +336,7 @@ async fn apply(pool: Arc<OutpostPool>, ctx: &Context) -> crate::Result<RequeueAc
         if !expected_secrets.contains(&name) {
             let result = match secret.labels().get(super::LABEL_SESSION_ID) {
                 Some(session_id) => {
-                    delete_session_artifacts(provider.as_ref(), &secrets, session_id, &name).await
+                    retire_vanished_session(provider.as_ref(), &secrets, session_id, &name).await
                 }
                 None => delete_ignoring_missing(&secrets, &name).await,
             };
@@ -690,6 +691,17 @@ async fn delete_session_artifacts(
     secret_name: &str,
 ) -> crate::Result<()> {
     provider.on_terminate(session_id).await?;
+    delete_ignoring_missing(secrets, secret_name).await
+}
+
+/// The secret is the retry handle: it goes only once the state is kept.
+async fn retire_vanished_session(
+    provider: &dyn SnapshotProvider,
+    secrets: &Api<Secret>,
+    session_id: &str,
+    secret_name: &str,
+) -> crate::Result<()> {
+    provider.on_vanish(session_id).await?;
     delete_ignoring_missing(secrets, secret_name).await
 }
 
@@ -1137,6 +1149,109 @@ mod tests {
             calls(),
             [
                 ("DELETE".to_string(), pvc_path.clone()),
+                ("DELETE".to_string(), secret_path.clone())
+            ]
+        );
+        http.abort();
+    }
+
+    #[tokio::test]
+    async fn vanished_session_keeps_its_state_volume() {
+        use std::sync::Mutex;
+
+        use axum::extract::{Request, State};
+        use axum::http::StatusCode;
+        use axum::response::{IntoResponse, Json, Response};
+        use axum::routing::any;
+        use axum::{Router, serve};
+
+        #[derive(Clone, Default)]
+        struct Server {
+            calls: Arc<Mutex<Vec<(String, String)>>>,
+        }
+
+        async fn handle(State(server): State<Server>, req: Request) -> Response {
+            let (method, path) = (req.method().to_string(), req.uri().path().to_string());
+            server
+                .calls
+                .lock()
+                .unwrap()
+                .push((method.clone(), path.clone()));
+            if path.contains("/persistentvolumeclaims/") && (method == "GET" || method == "PATCH") {
+                return Json(serde_json::json!({
+                    "apiVersion": "v1", "kind": "PersistentVolumeClaim",
+                    "metadata": {"name": "pvc", "namespace": "default"}
+                }))
+                .into_response();
+            }
+            if method == "DELETE" && path.contains("/secrets/") {
+                return Json(serde_json::json!({
+                    "apiVersion": "v1", "kind": "Status", "status": "Success"
+                }))
+                .into_response();
+            }
+            StatusCode::NOT_FOUND.into_response()
+        }
+
+        let server = Server::default();
+        let app = Router::new()
+            .route("/{*path}", any(handle))
+            .with_state(server.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let http = tokio::spawn(async move { serve(listener, app).await.unwrap() });
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
+        let client = kube::Client::try_from(kube::Config::new(
+            format!("http://{address}").parse().unwrap(),
+        ))
+        .unwrap();
+        let pool = Arc::new(OutpostPool::new(
+            "p",
+            crate::crd::OutpostPoolSpec {
+                pool_id: "pool_x".to_string(),
+                token_secret_ref: crate::crd::SecretKeyRef {
+                    name: "t".to_string(),
+                    key: "token".to_string(),
+                },
+                api_url: None,
+                max_concurrent_sessions: 1,
+                worker: crate::crd::WorkerTemplate {
+                    template: Default::default(),
+                    container_name: "devin-worker".to_string(),
+                    overrides: Default::default(),
+                },
+                resume: Default::default(),
+                image_build: None,
+            },
+        ));
+        let provider =
+            crate::snapshot::FilesystemSnapshotProvider::new(client.clone(), pool.clone());
+        let secrets: Api<Secret> = Api::namespaced(client.clone(), "ns");
+        let session_id = "s";
+        let pvc_path = format!(
+            "/api/v1/namespaces/default/persistentvolumeclaims/{}",
+            crate::controller::state_pvc_name(session_id)
+        );
+        let secret_path = format!(
+            "/api/v1/namespaces/ns/secrets/{}",
+            session_token_secret_name(session_id)
+        );
+
+        retire_vanished_session(
+            &provider,
+            &secrets,
+            session_id,
+            &session_token_secret_name(session_id),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            server.calls.lock().unwrap().clone(),
+            [
+                ("GET".to_string(), pvc_path.clone()),
+                ("PATCH".to_string(), pvc_path.clone()),
                 ("DELETE".to_string(), secret_path.clone())
             ]
         );

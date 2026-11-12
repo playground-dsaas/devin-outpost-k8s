@@ -420,6 +420,11 @@ impl SnapshotProvider for GkeSnapshotProvider {
         Ok(SnapshotOutcome::InProgress)
     }
 
+    /// Nothing was snapshotted yet, so nothing to keep.
+    async fn on_vanish(&self, _session_id: &str) -> Result<()> {
+        Ok(())
+    }
+
     /// Delete the session's triggers and (labeled) snapshots. Snapshots that
     /// were never labeled (e.g. operator crashed mid-suspend) fall back to
     /// the policy's retention config.
